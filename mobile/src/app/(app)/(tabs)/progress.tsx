@@ -4,9 +4,11 @@ import { router } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { useMyAttempts, useTrainerOverview, useTrainerScores } from '@/api/hooks';
 import { errorMessage } from '@/api/client';
-import { Badge, Banner, Button, Card, EmptyState, ErrorView, H2, Loading, Muted, Screen, Stat } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorView, H2, Loading, Muted, PageHeader, Screen, Stat } from '@/components/ui';
+import { describeParams } from '@/utils/experiment';
 import { formatDateTime, gradeFor } from '@/utils/format';
 import { colors, gradeColor, scoreColor, spacing } from '@/theme';
+import { TrainerCredentials } from '@/components/Credentials';
 
 export default function ProgressScreen() {
   const { user } = useAuth();
@@ -31,10 +33,11 @@ function LearnerProgress() {
   }
 
   if (query.isLoading) return <Loading />;
-  if (query.error) return <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />;
+  if (!query.data) return <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />;
 
   return (
-    <Screen refreshing={query.isRefetching} onRefresh={query.refetch}>
+    <Screen refreshing={query.isRefetching} onRefresh={query.refetch} edges={['top']}>
+      <PageHeader title="My scores" subtitle="Every run you've saved. Tap two to compare them." />
       {!attempts.length ? (
         <EmptyState
           icon="stats-chart-outline"
@@ -52,7 +55,6 @@ function LearnerProgress() {
               <Stat label="Avg irrigation" value={summary!.avgIrr.toFixed(0)} />
             </View>
           </Card>
-          <Banner tone="info" text="Tap two attempts to compare them side by side." />
           {selected.length === 2 && (
             <Button
               title="Compare selected"
@@ -60,7 +62,7 @@ function LearnerProgress() {
               onPress={() => router.push({ pathname: '/compare', params: { a: selected[0], b: selected[1] } })}
             />
           )}
-          <H2 style={{ marginTop: spacing.md }}>History</H2>
+          <H2 style={{ marginTop: spacing.sm }}>History</H2>
           {attempts.map((a) => {
             const isSel = selected.includes(a.id);
             const grade = gradeFor(a.totalScore);
@@ -71,6 +73,7 @@ function LearnerProgress() {
                     <Text style={s.title}>
                       {a.cropEmoji} {a.scenarioTitle}
                     </Text>
+                    <Text style={s.mode}>{a.mode === 'experiment' ? `🧪 ${describeParams(a.params)}` : '📅 Week by week'}</Text>
                     <Muted>{formatDateTime(a.createdAt)}</Muted>
                     <Text style={s.meta}>
                       💧 {a.waterUsedMm} mm · 🌾 {a.yieldTonsPerHa} t/ha · Irrigation {Math.round(a.irrigationScore)}
@@ -107,7 +110,9 @@ function TrainerScores() {
         overview.refetch();
         recent.refetch();
       }}
+      edges={['top']}
     >
+      <PageHeader title="Learner scores" subtitle="How your learners are doing across your scenarios." />
       <Card>
         <View style={{ flexDirection: 'row' }}>
           <Stat label="Scenarios" value={String(rows.length)} />
@@ -116,6 +121,8 @@ function TrainerScores() {
         </View>
       </Card>
       <Button title="All learner scores" icon="people-outline" variant="secondary" onPress={() => router.push('/trainer/scores')} />
+      <View style={{ height: spacing.md }} />
+      <TrainerCredentials />
 
       <H2 style={{ marginTop: spacing.lg }}>By scenario</H2>
       {rows.length === 0 && <Muted>Create a scenario to start collecting scores.</Muted>}
@@ -161,6 +168,7 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   title: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 2 },
   meta: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  mode: { fontSize: 13, fontWeight: '600', color: colors.primary, marginBottom: 2 },
   score: { fontSize: 28, fontWeight: '800' },
   small: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
 });

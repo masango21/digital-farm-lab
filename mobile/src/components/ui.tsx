@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, scoreColor, spacing } from '@/theme';
+import { colors, radius, scoreColor, shadow, spacing } from '@/theme';
 
 export function Screen({
   children,
@@ -55,6 +55,21 @@ export function Screen({
 export function H1({ children }: { children: ReactNode }) {
   return <Text style={styles.h1}>{children}</Text>;
 }
+
+/** Large page title + optional subtitle, used at the top of each tab. */
+export function PageHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
+  return (
+    <View style={styles.pageHeader}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.pageTitle} accessibilityRole="header">
+          {title}
+        </Text>
+        {subtitle ? <Text style={styles.muted}>{subtitle}</Text> : null}
+      </View>
+      {right}
+    </View>
+  );
+}
 export function H2({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   return <Text style={[styles.h2, style as object]}>{children}</Text>;
 }
@@ -82,7 +97,7 @@ export function Button({
 }) {
   const palette = {
     primary: { bg: colors.primary, fg: colors.white, border: colors.primary },
-    secondary: { bg: colors.white, fg: colors.primary, border: colors.primary },
+    secondary: { bg: colors.white, fg: colors.primary, border: colors.border },
     danger: { bg: colors.danger, fg: colors.white, border: colors.danger },
     ghost: { bg: 'transparent', fg: colors.primary, border: 'transparent' },
   }[variant];
@@ -188,6 +203,38 @@ export function ChipGroup<T extends string | number>({
   );
 }
 
+/** iOS-style segmented control for picking one of a few options. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View style={styles.segmented} accessibilityRole="tablist">
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            style={[styles.segment, active && styles.segmentActive]}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>
+              {o.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Badge({ label, color = colors.primary, bg = colors.primaryLight }: { label: string; color?: string; bg?: string }) {
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>
@@ -269,16 +316,18 @@ export function Banner({ text, tone = 'info' }: { text: string; tone?: 'info' | 
 export const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
-  h1: { fontSize: 26, fontWeight: '800', color: colors.text, marginBottom: spacing.sm },
-  h2: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  h1: { fontSize: 26, fontWeight: '800', color: colors.text, marginBottom: spacing.sm, letterSpacing: -0.3 },
+  h2: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  pageHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.lg, paddingTop: spacing.sm },
+  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text, letterSpacing: -0.5, marginBottom: 2 },
   muted: { fontSize: 14, color: colors.textMuted, lineHeight: 20 },
   row: { flexDirection: 'row', alignItems: 'center' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   button: {
-    minHeight: 48,
+    minHeight: 50,
     borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderWidth: 1,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
@@ -304,7 +353,8 @@ export const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(20, 40, 20, 0.04)',
+    ...shadow.card,
   },
   chip: {
     paddingHorizontal: spacing.md,
@@ -315,10 +365,15 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   chipText: { fontSize: 14, color: colors.text, fontWeight: '600' },
+  segmented: { flexDirection: 'row', backgroundColor: colors.background, borderRadius: radius.md, padding: 3, marginBottom: spacing.md },
+  segment: { flex: 1, paddingVertical: 9, borderRadius: radius.sm + 2, alignItems: 'center' },
+  segmentActive: { backgroundColor: colors.white, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  segmentText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
+  segmentTextActive: { color: colors.primary },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, alignSelf: 'flex-start' },
   badgeText: { fontSize: 12, fontWeight: '700' },
   scoreLabel: { fontSize: 14, fontWeight: '600', color: colors.text },
-  barTrack: { height: 8, backgroundColor: colors.border, borderRadius: 4, marginTop: 4, overflow: 'hidden' },
+  barTrack: { height: 8, backgroundColor: colors.background, borderRadius: 4, marginTop: 4, overflow: 'hidden' },
   barFill: { height: 8, borderRadius: 4 },
   stat: { flex: 1, alignItems: 'center', padding: spacing.sm },
   statValue: { fontSize: 20, fontWeight: '800', color: colors.text },

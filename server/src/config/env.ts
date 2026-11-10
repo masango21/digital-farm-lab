@@ -20,6 +20,14 @@ const schema = z.object({
   CLOUDINARY_API_KEY: z.string().default(''),
   CLOUDINARY_API_SECRET: z.string().default(''),
   CLOUDINARY_FOLDER: z.string().default('digital-farm-lab'),
+  /** AgriLearn Passport webhook for microcredential events. Empty = events wait in the outbox. */
+  AGRILEARN_WEBHOOK_URL: z.union([z.string().url(), z.literal('')]).default(''),
+  /** Shared secret used to sign each event (HMAC-SHA256, X-DFL-Signature header). */
+  AGRILEARN_WEBHOOK_SECRET: z.string().default(''),
+  /** Minimum score (0–100) for a reflected run to earn the scenario's microcredential. */
+  CREDENTIAL_MIN_SCORE: z.coerce.number().min(0).max(100).default(70),
+  /** Public base URL of this API, used in share links (defaults to the request host). */
+  PUBLIC_BASE_URL: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);

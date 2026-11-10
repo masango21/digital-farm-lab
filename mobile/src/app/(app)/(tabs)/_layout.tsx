@@ -9,11 +9,13 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        // Each tab draws its own large title (PageHeader), so no navigation bar here.
+        headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        headerStyle: { backgroundColor: colors.primary },
-        headerTintColor: colors.white,
-        headerTitleStyle: { fontWeight: '700' },
+        tabBarStyle: { backgroundColor: colors.white, borderTopColor: colors.border, height: 62, paddingTop: 6 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
+        sceneStyle: { backgroundColor: colors.background },
       }}
     >
       <Tabs.Screen
@@ -22,6 +24,10 @@ export default function TabsLayout() {
           title: isTrainer ? 'My Scenarios' : 'Scenarios',
           tabBarIcon: ({ color, size }) => <Ionicons name="leaf-outline" color={color as string} size={size} />,
         }}
+      />
+      <Tabs.Screen
+        name="farm"
+        options={{ title: 'Farm', tabBarIcon: ({ color, size }) => <Ionicons name="map-outline" color={color as string} size={size} /> }}
       />
       <Tabs.Screen
         name="progress"

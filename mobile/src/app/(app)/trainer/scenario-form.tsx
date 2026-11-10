@@ -25,6 +25,7 @@ const DEFAULTS: ScenarioInput = {
   pestWeeks: [],
   imageUrl: null,
   imagePublicId: null,
+  agrilearnModuleCode: '',
   isPublished: false,
 };
 
@@ -56,6 +57,7 @@ export default function ScenarioForm() {
       pestWeeks: sc.pestWeeks,
       imageUrl: sc.imageUrl,
       imagePublicId: sc.imagePublicId,
+      agrilearnModuleCode: sc.agrilearnModuleCode ?? '',
       isPublished: sc.isPublished,
     });
     setNumbers({
@@ -145,6 +147,15 @@ export default function ScenarioForm() {
           error={fields.description}
         />
         <TextField label="Learning goals (optional)" value={form.learningGoals} onChangeText={(t) => set('learningGoals', t)} placeholder="e.g. Irrigation timing, drought stress" />
+        <TextField
+          label="AgriLearn module code (optional)"
+          value={form.agrilearnModuleCode}
+          onChangeText={(t) => set('agrilearnModuleCode', t.trim())}
+          placeholder="e.g. AGR-IRR-101"
+          autoCapitalize="characters"
+          hint="Links this scenario's microcredential to an AgriLearn module."
+          error={fields.agrilearnModuleCode}
+        />
         <ChipGroup<Difficulty>
           label="Difficulty"
           value={form.difficulty}

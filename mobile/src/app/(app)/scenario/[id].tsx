@@ -7,6 +7,7 @@ import { errorMessage } from '@/api/client';
 import { Badge, Banner, Button, Card, ErrorView, H2, Loading, Muted, Screen, Stat } from '@/components/ui';
 import { CROPS, SOILS } from '@/simulation/crops';
 import { capitalize, formatDateTime, formatRand } from '@/utils/format';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { colors, scoreColor, spacing } from '@/theme';
 
 export default function ScenarioDetail() {
@@ -20,7 +21,7 @@ export default function ScenarioDetail() {
   const del = useDeleteScenario();
 
   if (scenario.isLoading) return <Loading />;
-  if (scenario.error || !scenario.data) return <ErrorView message={errorMessage(scenario.error)} onRetry={scenario.refetch} />;
+  if (!scenario.data) return <ErrorView message={errorMessage(scenario.error)} onRetry={scenario.refetch} />;
 
   const sc = scenario.data;
   const crop = CROPS[sc.crop];
@@ -43,6 +44,7 @@ export default function ScenarioDetail() {
   return (
     <Screen refreshing={stats.isRefetching} onRefresh={() => { scenario.refetch(); stats.refetch(); mine.refetch(); }}>
       <Stack.Screen options={{ title: `${crop.emoji} ${crop.name}` }} />
+      <OfflineBanner error={scenario.error} hasData />
       {sc.imageUrl && <Image source={{ uri: sc.imageUrl }} style={s.image} contentFit="cover" />}
       <View style={s.badges}>
         <Badge label={capitalize(sc.difficulty)} />
@@ -56,6 +58,8 @@ export default function ScenarioDetail() {
 
       <Card style={{ marginTop: spacing.lg }}>
         <H2>Farm conditions</H2>
+        {sc.fieldName && <Row label="Field" value={`${sc.fieldName}${sc.farmName ? ` · ${sc.farmName}` : ''}`} />}
+        {sc.agrilearnModuleCode && <Row label="AgriLearn module" value={sc.agrilearnModuleCode} />}
         <Row label="Crop" value={`${crop.emoji} ${crop.name} (${sc.weeks} weeks)`} />
         <Row label="Soil" value={`${soil.name} – holds ${soil.capacityMm} mm`} />
         <Row label="Ideal moisture" value={`${crop.optimalMoisture[0]}–${crop.optimalMoisture[1]}%`} />
@@ -69,7 +73,9 @@ export default function ScenarioDetail() {
 
       {isLearner && (
         <>
-          <Button title="Start simulation" icon="play" onPress={() => router.push(`/simulate/${sc.id}`)} />
+          <Button title="Quick experiment" icon="flask-outline" onPress={() => router.push(`/experiment/${sc.id}`)} />
+          <Muted center>Change one setting (e.g. 20% less irrigation) and compare with the baseline.</Muted>
+          <Button title="Play week by week" icon="calendar-outline" variant="secondary" onPress={() => router.push(`/simulate/${sc.id}`)} style={{ marginTop: spacing.sm }} />
           <Card style={{ marginTop: spacing.md }}>
             <H2>How you compare</H2>
             <View style={{ flexDirection: 'row' }}>

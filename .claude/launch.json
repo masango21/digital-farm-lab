@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api-local",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd server && set EMAIL_DNS_CHECK=false&& set PORT=4001&& npm run dev:local"],
+      "port": 4001,
+      "autoPort": false
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd mobile && set EXPO_PUBLIC_API_URL=http://localhost:4001&& set BROWSER=none&& npx expo start --web --port 8082"],
+      "port": 8082,
+      "autoPort": false
+    },
+    {
+      "name": "web-dist",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [".claude/serve-dist.mjs"],
+      "port": 8083,
+      "autoPort": false
+    }
+  ]
+}

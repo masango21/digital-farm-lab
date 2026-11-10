@@ -8,6 +8,41 @@
       "when": 1794169259772,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794252839987,
+      "tag": "0001_golden_journey",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794253402598,
+      "tag": "0002_reflection",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794253668975,
+      "tag": "0003_farms_fields_sensors",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794254187982,
+      "tag": "0004_share_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794254683924,
+      "tag": "0005_microcredentials",
+      "breakpoints": true
     }
   ]
 }

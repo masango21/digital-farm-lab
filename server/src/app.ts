@@ -9,6 +9,8 @@ import { scenariosRouter } from './routes/scenarios';
 import { attemptsRouter } from './routes/attempts';
 import { trainerRouter } from './routes/trainer';
 import { metaRouter } from './routes/meta';
+import { farmsRouter } from './routes/farms';
+import { shareRouter } from './routes/share';
 import { errorHandler, notFoundHandler } from './middleware/error';
 
 export function createApp() {
@@ -31,10 +33,12 @@ export function createApp() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  app.use('/share', shareRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/scenarios', scenariosRouter);
   app.use('/api/attempts', attemptsRouter);
   app.use('/api/trainer', trainerRouter);
+  app.use('/api/farms', farmsRouter);
   app.use('/api', metaRouter);
 
   app.use(notFoundHandler);

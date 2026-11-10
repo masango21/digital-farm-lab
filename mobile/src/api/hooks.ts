@@ -3,15 +3,19 @@ import { api } from './client';
 import type {
   Attempt,
   AttemptSummary,
+  Credential,
+  Farm,
+  TrainerCredential,
+  Reflection,
   Scenario,
   ScenarioInput,
   ScenarioStats,
+  SubmitAttempt,
   TrainerLearner,
   TrainerOverviewRow,
   TrainerScore,
   UploadSignature,
 } from './types';
-import type { WeekDecision } from '@/simulation/engine';
 
 export const keys = {
   scenarios: (filter?: object) => ['scenarios', filter ?? {}] as const,
@@ -67,8 +71,9 @@ export function useSaveScenario(id?: string) {
       ),
     onSuccess: (s) => {
       qc.invalidateQueries({ queryKey: ['scenarios'] });
+      qc.invalidateQueries({ queryKey: ['farms'] });
       qc.invalidateQueries({ queryKey: keys.trainerOverview });
-      qc.setQueryData(keys.scenario(s.id), s);
+      qc.invalidateQueries({ queryKey: keys.scenario(s.id) });
     },
   });
 }
@@ -87,12 +92,40 @@ export function useDeleteScenario() {
 export function useSubmitAttempt(scenarioId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (decisions: WeekDecision[]) =>
-      api<{ attempt: Attempt }>(`/api/scenarios/${scenarioId}/attempts`, { method: 'POST', body: { decisions } }).then((r) => r.attempt),
+    mutationFn: (body: SubmitAttempt) =>
+      api<{ attempt: Attempt }>(`/api/scenarios/${scenarioId}/attempts`, { method: 'POST', body }).then((r) => r.attempt),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-attempts'] });
       qc.invalidateQueries({ queryKey: keys.stats(scenarioId) });
     },
+  });
+}
+
+export function useSaveReflection(attemptId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (answers: Reflection[]) =>
+      api<{ reflection: Reflection[]; reflectedAt: string; credentialEarned: boolean }>(`/api/attempts/${attemptId}/reflection`, {
+        method: 'PUT',
+        body: { answers },
+      }),
+    onSuccess: ({ credentialEarned, ...r }) => {
+      qc.setQueryData<Attempt>(keys.attempt(attemptId), (a) => (a ? { ...a, ...r } : a));
+      qc.invalidateQueries({ queryKey: ['trainer-scores'] });
+      if (credentialEarned) qc.invalidateQueries({ queryKey: ['credentials'] });
+    },
+  });
+}
+
+/** Creates (on: true) or turns off (on: false) the public share link for a result. */
+export function useShareAttempt(attemptId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (on: boolean) =>
+      on
+        ? api<{ url: string; token: string }>(`/api/attempts/${attemptId}/share`, { method: 'POST', body: {} })
+        : api<void>(`/api/attempts/${attemptId}/share`, { method: 'DELETE' }).then(() => null),
+    onSuccess: (r) => qc.setQueryData<Attempt>(keys.attempt(attemptId), (a) => (a ? { ...a, shareToken: r?.token ?? null } : a)),
   });
 }
 
@@ -108,6 +141,29 @@ export function useAttempt(id: string | undefined) {
     queryKey: keys.attempt(id ?? ''),
     enabled: !!id,
     queryFn: () => api<{ attempt: Attempt }>(`/api/attempts/${id}`).then((r) => r.attempt),
+  });
+}
+
+export function useMyCredentials(enabled = true) {
+  return useQuery({
+    queryKey: ['credentials', 'me'],
+    enabled,
+    queryFn: () => api<{ credentials: Credential[] }>('/api/attempts/credentials/me').then((r) => r.credentials),
+  });
+}
+
+export function useTrainerCredentials(enabled = true) {
+  return useQuery({
+    queryKey: ['credentials', 'trainer'],
+    enabled,
+    queryFn: () => api<{ agrilearnConnected: boolean; credentials: TrainerCredential[] }>('/api/trainer/credentials'),
+  });
+}
+
+export function useFarms() {
+  return useQuery({
+    queryKey: ['farms'],
+    queryFn: () => api<{ farms: Farm[] }>('/api/farms').then((r) => r.farms),
   });
 }
 

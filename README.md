@@ -26,7 +26,7 @@ cp .env.example .env    # set EXPO_PUBLIC_API_URL=http://<your-computer-IP>:4000
 npx expo start          # scan the QR code with the Expo Go app
 ```
 
-Trainer invite code (local mode): `FARM-TRAINER-2026`
+Trainer invite code (local mode): `FARM-TRAINER-2026` · Demo accounts (password `Demo1234`): `learner@demo.test`, `trainer@demo.test`
 
 ## Go live
 Follow **docs/SYSTEM_DOCUMENTATION.md §8**: Neon → Brevo → Cloudinary → Render (`render.yaml`) → Expo.

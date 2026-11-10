@@ -5,9 +5,10 @@ export default function AppLayout() {
   return (
     <Stack
       screenOptions={{
-        headerTintColor: colors.white,
-        headerStyle: { backgroundColor: colors.primary },
-        headerTitleStyle: { fontWeight: '700' },
+        headerTintColor: colors.primary,
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { fontWeight: '700', color: colors.text },
+        headerShadowVisible: false,
         contentStyle: { backgroundColor: colors.background },
         headerBackButtonDisplayMode: 'minimal',
       }}
@@ -15,6 +16,7 @@ export default function AppLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="scenario/[id]" options={{ title: 'Scenario' }} />
       <Stack.Screen name="simulate/[id]" options={{ title: 'Simulation', gestureEnabled: false }} />
+      <Stack.Screen name="experiment/[id]" options={{ title: 'Quick experiment' }} />
       <Stack.Screen name="attempt/[id]" options={{ title: 'Results' }} />
       <Stack.Screen name="compare" options={{ title: 'Compare scores' }} />
       <Stack.Screen name="trainer/scenario-form" options={{ title: 'Scenario' }} />

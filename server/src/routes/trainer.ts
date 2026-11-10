@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { and, avg, count, desc, eq, max } from 'drizzle-orm';
 import { db } from '../db/client';
-import { attempts, scenarios, users } from '../db/schema';
+import { attempts, credentialEvents, scenarios, users } from '../db/schema';
+import { env } from '../config/env';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { parseQuery } from '../middleware/validate';
 import { CROPS } from '../simulation/crops';
@@ -51,6 +52,8 @@ trainerRouter.get('/scores', async (req, res) => {
       yieldTonsPerHa: attempts.yieldTonsPerHa,
       waterUsedMm: attempts.waterUsedMm,
       profit: attempts.profit,
+      mode: attempts.mode,
+      reflectedAt: attempts.reflectedAt,
       createdAt: attempts.createdAt,
     })
     .from(attempts)
@@ -60,6 +63,28 @@ trainerRouter.get('/scores', async (req, res) => {
     .orderBy(desc(attempts.createdAt))
     .limit(500);
   res.json({ scores: rows.map((r) => ({ ...r, cropEmoji: CROPS[r.crop].emoji })) });
+});
+
+// GET /api/trainer/credentials – microcredentials earned on the trainer's scenarios + AgriLearn delivery status
+trainerRouter.get('/credentials', async (req, res) => {
+  const rows = await db
+    .select({
+      id: credentialEvents.id,
+      learnerName: users.name,
+      scenarioTitle: scenarios.title,
+      crop: scenarios.crop,
+      status: credentialEvents.status,
+      lastError: credentialEvents.lastError,
+      createdAt: credentialEvents.createdAt,
+      sentAt: credentialEvents.sentAt,
+    })
+    .from(credentialEvents)
+    .innerJoin(scenarios, eq(scenarios.id, credentialEvents.scenarioId))
+    .innerJoin(users, eq(users.id, credentialEvents.learnerId))
+    .where(eq(scenarios.trainerId, req.user!.id))
+    .orderBy(desc(credentialEvents.createdAt))
+    .limit(200);
+  res.json({ agrilearnConnected: Boolean(env.AGRILEARN_WEBHOOK_URL), credentials: rows.map((r) => ({ ...r, cropEmoji: CROPS[r.crop].emoji })) });
 });
 
 // GET /api/trainer/learners?scenarioId=... – best score per learner

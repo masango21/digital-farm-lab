@@ -128,6 +128,8 @@ Creates an unverified account and emails a verification code.
   "user": { "id": "uuid", "name": "Sipho", "email": "sipho@gmail.com", "role": "learner", "emailVerified": true, "createdAt": "..." }
 }
 ```
+- **400 `CODE_INVALID` / `CODE_EXPIRED` / `CODE_LOCKED`**
+- **409 `ALREADY_VERIFIED`**: the account is already verified. No token is returned; sign in with your password instead.
 
 ### `POST /api/auth/resend-verification`
 `{ "email": "..." }` → **200** with a generic message. The reply is the same whether or not the email exists, so this endpoint can't be used to find out which emails have accounts.
@@ -136,7 +138,7 @@ Creates an unverified account and emails a verification code.
 `{ "email": "...", "password": "..." }`
 - **200** `{ token, user }`
 - **401 `INVALID_CREDENTIALS`**
-- **403 `EMAIL_NOT_VERIFIED`**: a new code is emailed automatically, and the app opens the verify screen.
+- **403 `EMAIL_NOT_VERIFIED`**: no code is sent (codes are only emailed at sign-up). The app opens the verify screen, where the user enters the sign-up code or taps "Send a new code".
 
 ### `POST /api/auth/forgot-password`
 `{ "email": "..." }` → **200** with a generic message. Sends a reset code if the account exists.
@@ -262,24 +264,41 @@ Any subset of the fields above. Weather is regenerated if `climate`, `weeks`, `a
 **204**. Also deletes all attempts and the Cloudinary image.
 
 ### `POST /api/scenarios/:id/attempts` (learner)
-Submits a completed simulation. **The server re-runs the simulation engine to calculate the official score.** Scores sent by the client are never trusted.
+Submits a run. **The server re-runs the simulation engine to calculate the official score.** Scores sent by the client are never trusted. There are two modes:
 
+**Quick experiment** (the golden journey: change one parameter of the baseline plan):
+```json
+{ "mode": "experiment", "params": { "irrigationChangePct": -20, "fertilizerPlan": "recommended", "plantingShiftWeeks": 0 } }
+```
+- `irrigationChangePct`: −100…100, % change to every irrigation in the baseline plan (−20 = 20% less water).
+- `fertilizerPlan`: `none | half | recommended | double`.
+- `plantingShiftWeeks`: −8…8, weeks earlier (negative) or later than the recommended planting date.
+The server builds the weekly decisions from the baseline plan and these parameters.
+
+**Week by week** (the learner made every decision):
 ```json
 {
+  "mode": "weekly",
   "decisions": [
     { "irrigationMm": 20, "fertilizer": "high", "pestControl": false },
     { "irrigationMm": 0,  "fertilizer": "none", "pestControl": false }
   ]
 }
 ```
-There must be exactly `scenario.weeks` decisions. `irrigationMm` is 0–60 and `fertilizer` is `none|low|high`.
+There must be exactly `scenario.weeks` decisions. `irrigationMm` is 0–60 and `fertilizer` is `none|low|high`. Requests without `mode` are treated as `weekly` (older app versions).
+
+Every attempt also stores `baseline`: the headline numbers of the scenario's **baseline plan** (standard practice: irrigate to the middle of the ideal moisture band within the water allowance, recommended fertiliser, spray only in pest weeks), so results can be compared with it.
 
 **201**
 ```json
 {
   "attempt": {
     "id": "uuid", "scenarioId": "uuid", "learnerId": "uuid",
+    "mode": "experiment",
+    "params": { "irrigationChangePct": -20, "fertilizerPlan": "recommended", "plantingShiftWeeks": 0 },
     "decisions": ["..."],
+    "baseline": { "totalScore": 83.3, "yieldTonsPerHa": 7.02, "waterUsedMm": 420, "totalCost": 19660, "profit": 9824 },
+    "reflection": null, "reflectedAt": null, "shareToken": null,
     "totalScore": 82.4, "irrigationScore": 86.1, "yieldTonsPerHa": 7.7, "waterUsedMm": 400, "profit": 13980,
     "result": {
       "totalScore": 82.4, "grade": "A",
@@ -312,6 +331,54 @@ The learner's own history (up to 200, newest first). `scenarioId` is optional.
 ### `GET /api/attempts/:id`
 Full attempt, including `result.logs`, plus `scenarioTitle`, `crop`, `cropEmoji` and `learnerName`. Only the learner who made the attempt or the trainer who owns the scenario can see it. Anyone else gets 404.
 
+### `PUT /api/attempts/:id/reflection` (the learner who made the run)
+Saves answers to the reflection prompts shown after a run (1–5 answers, each at least 3 characters).
+```json
+{ "answers": [{ "prompt": "Why did yield change?", "answer": "Less water meant the soil dried below the ideal band." }] }
+```
+**200** `{ "reflection": [...], "reflectedAt": "...", "credentialEarned": true }`. `credentialEarned` is true when this reflection earned the scenario's microcredential (see below).
+
+### `POST /api/attempts/:id/share` / `DELETE /api/attempts/:id/share` (the learner who made the run)
+`POST` creates (or returns the existing) public read-only link: **200** `{ "url": "https://…/share/<token>", "token": "…" }`. `DELETE` turns the link off (**204**). The public page `GET /share/:token` needs no sign-in and shows only the learner's first name, grade, score and baseline comparison: never their email.
+
+### `GET /api/attempts/credentials/me`
+The learner's microcredentials and their AgriLearn delivery status (`pending | sent | failed`).
+```json
+{ "credentials": [{ "id": "uuid", "scenarioId": "uuid", "attemptId": "uuid", "scenarioTitle": "...", "crop": "maize", "cropEmoji": "🌽",
+  "code": "DFL-MAIZE-7ef3cfc1", "score": 83.3, "status": "sent", "createdAt": "...", "sentAt": "..." }] }
+```
+
+---
+
+## 6a. Virtual farm — `/api/farms` 🔒
+
+### `GET /api/farms`
+Farms → fields → scenarios on each field, each with its synthetic weekly sensor feed (soil-moisture probe from the baseline plan, rain gauge, air temperature). Learners see fields with published scenarios; trainers also see their own drafts.
+```json
+{ "farms": [{ "id": "uuid", "name": "Digital Farm Lab Demo Farm", "region": "Gauteng, South Africa", "isMine": false,
+  "fields": [{ "id": "uuid", "name": "Field 1 · Maize", "areaHa": 1, "soil": "loam", "soilName": "Loam",
+    "scenarios": [{ "id": "uuid", "title": "...", "crop": "maize", "cropEmoji": "🌽", "isPublished": true, "weeks": 16,
+      "optimalMoisture": [40, 70],
+      "readings": [{ "week": 1, "recordedAt": "...", "soilMoisturePct": 51.2, "rainfallMm": 0, "temperatureC": 27, "source": "synthetic" }] }] }] }] }
+```
+
+## 6b. Microcredentials → AgriLearn Passport
+
+A learner earns a scenario's microcredential the first time a run scores at least `CREDENTIAL_MIN_SCORE` (default 70) **and** they save its reflection. The server stores a `microcredential.earned` event in the `credential_events` outbox and `POST`s it to `AGRILEARN_WEBHOOK_URL`, retrying every 10 minutes (up to 8 attempts) until AgriLearn replies 2xx. If the URL is empty, events wait in the outbox.
+
+Headers: `X-DFL-Event-Id` (use it to ignore duplicates) and `X-DFL-Signature: sha256=<HMAC-SHA256 of the raw body with AGRILEARN_WEBHOOK_SECRET>`.
+```json
+{
+  "id": "event-uuid", "type": "microcredential.earned", "occurredAt": "...",
+  "issuer": { "name": "Digital Farm Lab", "app": "digital-farm-lab" },
+  "learner": { "id": "uuid", "email": "sipho@gmail.com", "name": "Sipho", "emailVerified": true },
+  "credential": { "code": "DFL-MAIZE-7ef3cfc1", "title": "Digital Farm Lab: Maize in a Dry Highveld Summer",
+    "description": "...", "agrilearnModuleCode": "AGR-IRR-101", "scenarioId": "uuid", "attemptId": "uuid",
+    "score": 83.3, "grade": "A", "mode": "experiment" }
+}
+```
+Scenarios have an optional `agrilearnModuleCode` (set by the trainer) that links the credential to an AgriLearn module.
+
 ---
 
 ## 7. Trainer dashboard — `/api/trainer` 🔒 (trainer)
@@ -329,6 +396,15 @@ Every learner attempt on the trainer's scenarios (up to 500, newest first):
 { "scores": [{ "attemptId": "uuid", "scenarioId": "uuid", "scenarioTitle": "...", "crop": "maize", "cropEmoji": "🌽",
   "learnerId": "uuid", "learnerName": "Sipho", "learnerEmail": "sipho@gmail.com",
   "totalScore": 82.4, "irrigationScore": 86.1, "yieldTonsPerHa": 7.7, "waterUsedMm": 400, "profit": 13980, "createdAt": "..." }] }
+```
+
+Each score row also has `mode` (`weekly | experiment`) and `reflectedAt` (null until the learner reflects).
+
+### `GET /api/trainer/credentials`
+Microcredentials earned on the trainer's scenarios and whether AgriLearn received them:
+```json
+{ "agrilearnConnected": true, "credentials": [{ "id": "uuid", "learnerName": "Sipho", "scenarioTitle": "...", "cropEmoji": "🌽",
+  "status": "sent", "lastError": null, "createdAt": "...", "sentAt": "..." }] }
 ```
 
 ### `GET /api/trainer/learners?scenarioId=<uuid>`

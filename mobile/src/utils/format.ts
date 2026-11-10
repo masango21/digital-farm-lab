@@ -1,5 +1,8 @@
-export const formatRand = (v: number) =>
-  `R ${Math.round(v).toLocaleString('en-ZA')}`;
+/** "R 12 345" / "−R 9 586", with non-breaking spaces so amounts never wrap. */
+export const formatRand = (v: number) => {
+  const n = Math.round(v);
+  return `${n < 0 ? '−' : ''}R ${Math.abs(n).toLocaleString('en-ZA').replace(/\s/g, ' ')}`;
+};
 
 export const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });

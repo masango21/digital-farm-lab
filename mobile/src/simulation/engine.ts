@@ -15,6 +15,9 @@ import {
   SOILS,
   COSTS,
   FERTILIZER_UNITS,
+  FERTILIZER_PLANS,
+  PLANTING_TEMP_PER_WEEK,
+  PLANTING_YIELD_PENALTY_PER_WEEK,
   WILTING_POINT_PCT,
   WATERLOGGING_PCT,
   type CropId,
@@ -22,6 +25,7 @@ import {
   type Climate,
   type GrowthStage,
   type FertilizerLevel,
+  type FertilizerPlan,
 } from './crops';
 
 export const SCORE_WEIGHTS = {
@@ -43,6 +47,8 @@ export interface SimScenario {
   waterAllowanceMm: number;
   /** 1-based week numbers when a pest outbreak happens. */
   pestWeeks: number[];
+  /** Planting date shift in weeks from the recommended date (0 = recommended). */
+  plantingShiftWeeks?: number;
 }
 
 export interface WeekDecision {
@@ -164,6 +170,22 @@ export function generateWeather(
   return { rainfallMm, temperatureC };
 }
 
+/**
+ * Weather for a given week (1-based), taking the planting shift into account.
+ * Shifting planting moves the season along the weather record (reflected at the
+ * ends so values stay realistic) and changes temperature a little per week.
+ */
+export function weatherAt(scenario: SimScenario, week: number): { rainMm: number; temperatureC: number } {
+  const shift = Math.round(scenario.plantingShiftWeeks ?? 0);
+  const n = scenario.rainfallMm.length;
+  if (n === 0) return { rainMm: 0, temperatureC: 22 };
+  let idx = week - 1 + shift;
+  // Reflect out-of-range weeks back into the record: -1 -> 0, -2 -> 1, n -> n-1, ...
+  while (idx < 0 || idx >= n) idx = idx < 0 ? -idx - 1 : 2 * n - idx - 1;
+  const baseTemp = scenario.temperatureC[idx] ?? 22;
+  return { rainMm: scenario.rainfallMm[idx] ?? 0, temperatureC: round(baseTemp + shift * PLANTING_TEMP_PER_WEEK, 0) };
+}
+
 export function createInitialState(scenario: SimScenario): SimState {
   const soil = SOILS[scenario.soil];
   return {
@@ -202,8 +224,7 @@ export function stepWeek(scenario: SimScenario, prev: SimState, rawDecision: Par
   const soil = SOILS[scenario.soil];
   const week = prev.week + 1;
   const stage = stageForWeek(scenario.crop, week, scenario.weeks);
-  const rain = scenario.rainfallMm[week - 1] ?? 0;
-  const temp = scenario.temperatureC[week - 1] ?? 22;
+  const { rainMm: rain, temperatureC: temp } = weatherAt(scenario, week);
   const events: string[] = [];
 
   const s: SimState = {
@@ -321,7 +342,10 @@ export function scoreSimulation(scenario: SimScenario, s: SimState): SimResult {
   // Nutrients: 60% of yield possible with zero fertilizer.
   const nRatio = s.nitrogenApplied / crop.nitrogenNeed;
   const nutrientFactor = clamp(0.6 + 0.4 * Math.min(1, nRatio), 0.6, 1);
-  const yieldTons = crop.potentialYield * s.health * nutrientFactor;
+  // Planting away from the recommended date shortens the useful season a little.
+  const shiftWeeks = Math.abs(Math.round(scenario.plantingShiftWeeks ?? 0));
+  const plantingFactor = clamp(1 - shiftWeeks * PLANTING_YIELD_PENALTY_PER_WEEK, 0.5, 1);
+  const yieldTons = crop.potentialYield * s.health * nutrientFactor * plantingFactor;
 
   const yieldScore = clamp((yieldTons / crop.potentialYield) * 100, 0, 100);
 
@@ -382,6 +406,12 @@ export function scoreSimulation(scenario: SimScenario, s: SimState): SimResult {
   if (s.pestOutbreaks > s.pestOutbreaksControlled) feedback.push('Some pest outbreaks were not controlled. Scout and spray when outbreaks are forecast.');
   if (s.unnecessarySprays > 2) feedback.push('You sprayed many times without pests. Only spray when needed.');
   if (overBudget) feedback.push('You went over budget.');
+  if (shiftWeeks > 0)
+    feedback.push(
+      `Planting ${shiftWeeks} week(s) ${(scenario.plantingShiftWeeks ?? 0) < 0 ? 'early' : 'late'} cost about ${Math.round(
+        (1 - plantingFactor) * 100,
+      )}% of potential yield.`,
+    );
   if (feedback.length === 0) feedback.push('Excellent farm management! 🌱');
 
   return {
@@ -410,4 +440,116 @@ export function runSimulation(scenario: SimScenario, decisions: Partial<WeekDeci
     state = stepWeek(scenario, state, decisions[w] ?? {});
   }
   return scoreSimulation(scenario, state);
+}
+
+// ---------------------------------------------------------------------------
+// Baseline + quick experiments ("change one parameter and compare")
+// ---------------------------------------------------------------------------
+
+/** The parameters a learner can change in a quick experiment. */
+export interface ExperimentParams {
+  /** % change to every baseline irrigation (e.g. -20 = 20% less water). */
+  irrigationChangePct: number;
+  fertilizerPlan: FertilizerPlan;
+  /** Weeks earlier (negative) or later (positive) than recommended. */
+  plantingShiftWeeks: number;
+}
+
+export const BASELINE_PARAMS: ExperimentParams = { irrigationChangePct: 0, fertilizerPlan: 'recommended', plantingShiftWeeks: 0 };
+
+export function sanitizeParams(p: Partial<ExperimentParams> | undefined): ExperimentParams {
+  const plan = p?.fertilizerPlan;
+  return {
+    irrigationChangePct: clamp(Math.round(Number(p?.irrigationChangePct) || 0), -100, 100),
+    fertilizerPlan: plan && plan in FERTILIZER_PLANS ? plan : 'recommended',
+    plantingShiftWeeks: clamp(Math.round(Number(p?.plantingShiftWeeks) || 0), -8, 8),
+  };
+}
+
+/** Which parameters differ from the baseline (used to label a run). */
+export function changedParams(p: ExperimentParams): (keyof ExperimentParams)[] {
+  return (Object.keys(BASELINE_PARAMS) as (keyof ExperimentParams)[]).filter((k) => p[k] !== BASELINE_PARAMS[k]);
+}
+
+/** Fertilizer schedule: 2 units a week from the start of development until the target is met. */
+function fertilizerSchedule(scenario: SimScenario, factor: number): FertilizerLevel[] {
+  const crop = CROPS[scenario.crop];
+  let remaining = Math.round(crop.nitrogenNeed * factor);
+  const plan: FertilizerLevel[] = [];
+  for (let w = 1; w <= scenario.weeks; w++) {
+    const stage = stageForWeek(scenario.crop, w, scenario.weeks);
+    if (remaining > 0 && stage !== 'initial' && stage !== 'late-season') {
+      plan.push(remaining >= 2 ? 'high' : 'low');
+      remaining -= remaining >= 2 ? 2 : 1;
+    } else plan.push('none');
+  }
+  return plan;
+}
+
+/**
+ * The baseline: a sensible "standard practice" plan at the recommended planting date.
+ * Each week it irrigates (in 10 mm steps, max 40 mm, never past the water allowance)
+ * to aim for the middle of the crop's ideal moisture band, applies the recommended
+ * fertilizer, and sprays only in pest weeks.
+ */
+export function baselineDecisions(scenario: SimScenario): WeekDecision[] {
+  const base: SimScenario = { ...scenario, plantingShiftWeeks: 0 };
+  const crop = CROPS[base.crop];
+  const soil = SOILS[base.soil];
+  const fert = fertilizerSchedule(base, 1);
+  const targetMm = ((crop.optimalMoisture[0] + crop.optimalMoisture[1]) / 2 / 100) * soil.capacityMm;
+  let state = createInitialState(base);
+  const decisions: WeekDecision[] = [];
+  for (let w = 1; w <= base.weeks; w++) {
+    const { rainMm, temperatureC } = weatherAt(base, w);
+    const et = weeklyET0(temperatureC) * crop.kc[stageForWeek(base.crop, w, base.weeks)];
+    const expected = (state.moistureMm + rainMm - et) * (1 - soil.weeklyDrainage);
+    const shortfall = targetMm - expected;
+    const wanted = shortfall > 0 ? clamp(Math.round(shortfall / (1 - soil.weeklyDrainage) / 10) * 10, 0, 40) : 0;
+    // Standard practice stays inside the scenario's water allowance.
+    const left = Math.max(0, base.waterAllowanceMm - state.irrigationTotalMm);
+    const irrigationMm = Math.min(wanted, Math.floor(left / 10) * 10);
+    const d: WeekDecision = { irrigationMm, fertilizer: fert[w - 1], pestControl: base.pestWeeks.includes(w) };
+    decisions.push(d);
+    state = stepWeek(base, state, d);
+  }
+  return decisions;
+}
+
+/** Builds the weekly decisions for an experiment by changing the baseline plan. */
+export function experimentDecisions(scenario: SimScenario, rawParams: Partial<ExperimentParams>): WeekDecision[] {
+  const p = sanitizeParams(rawParams);
+  const base = baselineDecisions(scenario);
+  const fert = fertilizerSchedule(scenario, FERTILIZER_PLANS[p.fertilizerPlan].factor);
+  return base.map((d, i) => ({
+    irrigationMm: clamp(Math.round(d.irrigationMm * (1 + p.irrigationChangePct / 100)), 0, 60),
+    fertilizer: fert[i],
+    pestControl: d.pestControl,
+  }));
+}
+
+/** Runs one experiment and returns its decisions and result. */
+export function runExperiment(scenario: SimScenario, rawParams: Partial<ExperimentParams>) {
+  const params = sanitizeParams(rawParams);
+  const decisions = experimentDecisions(scenario, params);
+  const result = runSimulation({ ...scenario, plantingShiftWeeks: params.plantingShiftWeeks }, decisions);
+  return { params, decisions, result };
+}
+
+/** Headline numbers used to compare any run with the baseline. */
+export interface RunSummary {
+  totalScore: number;
+  yieldTonsPerHa: number;
+  waterUsedMm: number;
+  totalCost: number;
+  profit: number;
+}
+
+export function summarize(r: SimResult): RunSummary {
+  return { totalScore: r.totalScore, yieldTonsPerHa: r.yieldTonsPerHa, waterUsedMm: r.waterUsedMm, totalCost: r.totalCost, profit: r.profit };
+}
+
+/** The baseline run for a scenario. */
+export function runBaseline(scenario: SimScenario): SimResult {
+  return runExperiment(scenario, BASELINE_PARAMS).result;
 }

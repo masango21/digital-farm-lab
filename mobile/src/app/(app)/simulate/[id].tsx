@@ -11,6 +11,7 @@ import {
   scoreSimulation,
   stageForWeek,
   stepWeek,
+  weatherAt,
   weeklyET0,
   SCORE_WEIGHTS,
   type SimScenario,
@@ -18,6 +19,7 @@ import {
   type WeekDecision,
 } from '@/simulation/engine';
 import { capitalize, formatRand } from '@/utils/format';
+import { toSimScenario } from '@/utils/experiment';
 import { colors, gradeColor, spacing } from '@/theme';
 
 export default function Simulate() {
@@ -26,18 +28,7 @@ export default function Simulate() {
   if (query.isLoading) return <Loading />;
   if (query.error || !query.data) return <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />;
   const sc = query.data;
-  const sim: SimScenario = {
-    crop: sc.crop,
-    soil: sc.soil,
-    weeks: sc.weeks,
-    rainfallMm: sc.rainfallMm,
-    temperatureC: sc.temperatureC,
-    startMoisturePct: sc.startMoisturePct,
-    budget: sc.budget,
-    waterAllowanceMm: sc.waterAllowanceMm,
-    pestWeeks: sc.pestWeeks,
-  };
-  return <SimulationRunner scenarioId={sc.id} title={sc.title} scenario={sim} />;
+  return <SimulationRunner scenarioId={sc.id} title={sc.title} scenario={toSimScenario(sc)} />;
 }
 
 function SimulationRunner({ scenarioId, title, scenario }: { scenarioId: string; title: string; scenario: SimScenario }) {
@@ -54,8 +45,7 @@ function SimulationRunner({ scenarioId, title, scenario }: { scenarioId: string;
   const week = state.week + 1; // the week we are deciding for
   const stage = stageForWeek(scenario.crop, Math.min(week, scenario.weeks), scenario.weeks);
   const moisturePct = (state.moistureMm / soil.capacityMm) * 100;
-  const forecastRain = scenario.rainfallMm[week - 1] ?? 0;
-  const forecastTemp = scenario.temperatureC[week - 1] ?? 22;
+  const { rainMm: forecastRain, temperatureC: forecastTemp } = weatherAt(scenario, Math.min(week, scenario.weeks));
   const pestAlert = scenario.pestWeeks.includes(week);
   const lastLog = state.logs[state.logs.length - 1];
   const spent = state.costs.water + state.costs.fertilizer + state.costs.pest + state.costs.fixed;
@@ -86,7 +76,7 @@ function SimulationRunner({ scenarioId, title, scenario }: { scenarioId: string;
   }
 
   async function onSubmit() {
-    submit.mutate(decisions, {
+    submit.mutate({ mode: 'weekly', decisions }, {
       onSuccess: (attempt) => router.replace(`/attempt/${attempt.id}`),
     });
   }

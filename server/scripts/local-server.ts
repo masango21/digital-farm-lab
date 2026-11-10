@@ -29,10 +29,20 @@ setTestDb(db);
 const { seedDatabase } = await import('../src/db/seed');
 await seedDatabase(db as never);
 
+// Ready-made, already-verified demo accounts (local in-memory mode only).
+const bcrypt = (await import('bcryptjs')).default;
+const DEMO_PASSWORD = 'Demo1234';
+const demoHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+await db.insert(schema.users).values([
+  { name: 'Demo Learner', email: 'learner@demo.test', passwordHash: demoHash, role: 'learner', emailVerified: true },
+  { name: 'Demo Trainer', email: 'trainer@demo.test', passwordHash: demoHash, role: 'trainer', emailVerified: true },
+]);
+
 const { createApp } = await import('../src/app');
 const port = Number(process.env.PORT ?? 4000);
 createApp().listen(port, '0.0.0.0', () => {
   console.log(`\n🌱 Local API (in-memory DB) on http://localhost:${port}`);
   console.log(`   Trainer invite code: ${process.env.TRAINER_INVITE_CODE}`);
+  console.log(`   Demo accounts (password ${DEMO_PASSWORD}): learner@demo.test · trainer@demo.test`);
   console.log('   Verification codes are printed below as [DEV EMAIL]\n');
 });

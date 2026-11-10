@@ -122,6 +122,45 @@ erDiagram
   users ||--o{ scenarios : "creates (trainer)"
   users ||--o{ attempts : "makes (learner)"
   scenarios ||--o{ attempts : "is attempted in"
+  users ||--o{ farms : "owns (trainer)"
+  farms ||--o{ fields : has
+  fields ||--o{ scenarios : "is played on"
+  fields ||--o{ sensor_readings : logs
+  scenarios ||--o{ sensor_readings : "season of"
+  attempts ||--o| credential_events : "earns"
+
+  farms {
+    uuid id PK
+    uuid owner_id FK
+    text name
+    text region
+  }
+  fields {
+    uuid id PK
+    uuid farm_id FK
+    text name
+    real area_ha
+    enum soil
+  }
+  sensor_readings {
+    uuid id PK
+    uuid field_id FK
+    uuid scenario_id FK
+    int week
+    real soil_moisture_pct
+    real rainfall_mm
+    real temperature_c
+    text source "synthetic"
+  }
+  credential_events {
+    uuid id PK
+    uuid learner_id FK
+    uuid scenario_id FK
+    uuid attempt_id FK
+    jsonb payload
+    enum status "pending|sent|failed"
+    int delivery_attempts
+  }
 
   users {
     uuid id PK
@@ -157,6 +196,8 @@ erDiagram
     real budget
     real water_allowance_mm
     jsonb pest_weeks
+    uuid field_id FK
+    text agrilearn_module_code
     text image_url
     bool is_published
   }
@@ -164,8 +205,13 @@ erDiagram
     uuid id PK
     uuid scenario_id FK
     uuid learner_id FK
+    enum mode "weekly|experiment"
+    jsonb params
     jsonb decisions
     jsonb result
+    jsonb baseline
+    jsonb reflection
+    text share_token
     real total_score
     real irrigation_score
     real yield_tons_per_ha
@@ -176,6 +222,9 @@ erDiagram
 
 - Deleting a user deletes their codes, scenarios and attempts (cascade). Deleting a scenario deletes its attempts.
 - Key score values are stored in their own columns, so the trainer dashboard can aggregate them with SQL (avg/max). The full result, including the week-by-week log, is kept in `result` (JSONB).
+- **`runs` and `scores`** (named in the project spec) are read-only SQL views over `attempts`: an attempt *is* a run, and its score columns are the score.
+- Each trainer gets one farm automatically; every scenario gets its own field on it. When a scenario is created or its conditions change, the server regenerates its **synthetic sensor feed** (`sensor_readings`, one row per week): the rain gauge and air temperature are the weather that drives the crop model, and the soil-moisture probe comes from the baseline plan.
+- `npm run db:seed` also backfills a field + sensor feed for any scenario created before farms existed. Run it once after migrating an existing database.
 
 ---
 
@@ -218,7 +267,17 @@ Health starts at 100% and is multiplied by `(1 − loss)` every week:
 | Heat ≥ 35 °C | 3% |
 | Pest outbreak not sprayed | 12% × crop pest susceptibility |
 
-`yield = potentialYield × health × nutrientFactor`, where `nutrientFactor = 0.6 + 0.4 × min(1, fertilizerApplied / cropNeed)`.
+`yield = potentialYield × health × nutrientFactor × plantingFactor`, where `nutrientFactor = 0.6 + 0.4 × min(1, fertilizerApplied / cropNeed)` and `plantingFactor = 1 − 3% per week away from the recommended planting date`.
+
+### Baseline and quick experiments (the golden journey)
+The spec's purpose is *"run scenarios such as reducing irrigation by 20% and see the effect"*. Learners do that in **Quick experiment**: choose a scenario → change **one** parameter → run → see the outcome next to the baseline → receive a score.
+
+- **Baseline** (`baselineDecisions`): standard practice at the recommended planting date. Each week it irrigates in 10 mm steps (max 40 mm, never beyond the water allowance) to aim for the middle of the crop's ideal moisture band, applies the recommended fertiliser from the development stage, and sprays only in pest weeks.
+- **Parameters** (`ExperimentParams`): irrigation −40/−20/+20/+40% of every baseline irrigation · fertiliser none/half/recommended/double · planting date 2 or 4 weeks early/late.
+- **Planting date** shifts the season along the scenario's weather record (reflected at the ends) and changes temperature by 0.75 °C per week (later = warmer), plus the yield factor above.
+- The app previews the result instantly on the device. When saved, the server re-runs it and stores the baseline's headline numbers with the attempt, so every result (experiment or week-by-week) is shown against the baseline.
+
+> **Calibration note:** in the dry maize starter scenario, −20% irrigation drops yield by about 70%. Water stress compounds weekly once soil falls below the 20% wilting point, so this is a strong, deliberate teaching effect, not a field-calibrated prediction.
 
 ### Scoring (total 100)
 
@@ -238,6 +297,21 @@ Grades: **A** ≥ 80 · **B** ≥ 70 · **C** ≥ 60 · **D** ≥ 50 · **F** be
 Trainers pick a climate (dry/normal/wet) and an average temperature. The server generates weekly rainfall and temperatures from a seeded random generator, so every learner gets **identical weather** for a scenario and scores can be compared fairly. Learners see each week's forecast before they decide.
 
 Values are simplified for teaching (loosely based on FAO-56 crop coefficients and typical South African yields and prices). They are not agronomic advice.
+
+### Model simplifications (shown in the app)
+The app shows a **"Teaching model – not agronomic advice"** notice on the Crop Guide tab, the quick-experiment screen and every result. It lists the simplifications (`MODEL_SIMPLIFICATIONS` in `crops.ts`):
+- One hectare, one crop and one uniform soil layer; no slopes, shade or field variation.
+- Weather and sensor readings are synthetic (generated), not measured on a real farm.
+- Water use is a weekly bucket model loosely based on FAO-56 crop coefficients.
+- Nutrients are a single "fertilizer units" number; no N, P, K or soil chemistry.
+- Pests arrive on fixed weeks and one spray always controls them.
+- Prices and costs are fixed teaching values in rand, not live market prices.
+- Planting date only shifts temperature and the weather window, plus a small yield penalty.
+
+### Reflection, sharing and microcredentials
+- After each run the learner answers **three reflection prompts** tailored to what they changed (why it happened, whether the trade-off was worth it, what a real farmer would still need to check). Trainers can read the answers.
+- Learners can **share a result** as a public read-only link (`/share/<token>`) that shows first name, grade and the baseline comparison, never their email. They can switch the link off.
+- A scored run of **70+ plus a completed reflection** earns the scenario's **microcredential**, sent to the AgriLearn Passport as a signed webhook event (API docs §6b).
 
 ---
 
@@ -278,6 +352,9 @@ cp .env.example .env    # set EXPO_PUBLIC_API_URL=http://<your-computer-LAN-IP>:
 npx expo start          # scan the QR code with Expo Go
 ```
 Trainer invite code in local mode: `FARM-TRAINER-2026`. Verification codes appear in the server console as `[DEV EMAIL]`.
+Local mode also creates two ready-to-use, already-verified accounts (password `Demo1234`): `learner@demo.test` and `trainer@demo.test`. Data is lost when the server stops.
+
+**Web / PWA:** `npx expo start --web` runs the app in a browser. For an installable PWA, build it with `npx expo export -p web` and host the `dist/` folder on any static host (e.g. Render Static Site, free). The service worker (`public/sw.js`) and manifest (`public/manifest.json`) are only active in that production build. Scenarios, the farm view and your results are saved on the device (7 days) so the app opens offline; saving a new score needs a connection.
 
 ### 8.3 Neon (database)
 1. Create a project at neon.tech and copy the **pooled** connection string.
@@ -298,7 +375,8 @@ Dashboard → copy **Cloud name**, **API key** and **API secret** into `CLOUDINA
 2. Render → **New → Blueprint** → choose the repo. `render.yaml` sets up the service with `rootDir: server`, the free plan and a `/health` check.
 3. Enter the secret values when prompted: `DATABASE_URL`, `TRAINER_INVITE_CODE`, `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS`, `CLOUDINARY_*`. `JWT_SECRET` is generated automatically.
 4. Every deploy runs `npm run build && npm run db:migrate`.
-5. Run the seed once from your computer, pointed at Neon: `npm run db:seed`.
+5. Run the seed once from your computer, pointed at Neon: `npm run db:seed`. **Run it again after deploying the farms update**: it backfills a field and sensor feed for existing scenarios.
+6. Set `PUBLIC_BASE_URL` to the Render URL so share links point to it. Set `AGRILEARN_WEBHOOK_URL` once AgriLearn gives you an endpoint, and give them the generated `AGRILEARN_WEBHOOK_SECRET` so they can check signatures.
 
 ### 8.7 Mobile app
 - Development: `npx expo start` with `EXPO_PUBLIC_API_URL` set to your Render URL or LAN IP.
@@ -309,7 +387,7 @@ Dashboard → copy **Cloud name**, **API key** and **API secret** into `CLOUDINA
 |---|---|---|
 | `DATABASE_URL` | ✓ | Neon pooled connection string |
 | `JWT_SECRET` | ✓ | ≥32 random characters |
-| `JWT_EXPIRES_IN` | | default `7d` |
+| `JWT_EXPIRES_IN` | | default `186d` |
 | `TRAINER_INVITE_CODE` | ✓ | Code needed to register as a trainer |
 | `BREVO_API_KEY` | ✓ (prod) | If empty, emails are printed to the console |
 | `EMAIL_FROM_ADDRESS` | ✓ | Brevo-verified sender |
@@ -320,6 +398,10 @@ Dashboard → copy **Cloud name**, **API key** and **API secret** into `CLOUDINA
 | `CLOUDINARY_FOLDER` | | default `digital-farm-lab` |
 | `CORS_ORIGINS` | | `*` or a comma-separated list (only matters for the web build) |
 | `PORT` | | default 4000 (Render sets this) |
+| `AGRILEARN_WEBHOOK_URL` | | AgriLearn Passport endpoint for microcredential events. Empty = events wait in the outbox |
+| `AGRILEARN_WEBHOOK_SECRET` | with webhook | Signs each event (`X-DFL-Signature`, HMAC-SHA256) |
+| `CREDENTIAL_MIN_SCORE` | | default `70`: minimum score (with a reflection) to earn a microcredential |
+| `PUBLIC_BASE_URL` | | Public API URL used in share links; default = the request's host |
 
 Mobile: `EXPO_PUBLIC_API_URL`.
 
@@ -329,8 +411,8 @@ Mobile: `EXPO_PUBLIC_API_URL`.
 
 | Check | Command | What it covers |
 |---|---|---|
-| Engine tests | `cd server && npm test` | Weather is deterministic, every crop rewards good management over neglect, irrigation counts for 20%, over-irrigation is penalised |
-| API end-to-end test | (same command) | Register → wrong code rejected → verify → trainer invite code → create/publish scenario → learner attempts → stats → trainer scores → password reset revokes old token → delete. Runs on in-memory Postgres (PGlite) |
+| Engine tests | `cd server && npm test` | Weather is deterministic, every crop rewards good management over neglect, irrigation counts for 20%, over-irrigation is penalised, every crop's baseline scores ≥ 60 within its water allowance, −20% irrigation uses 20% less water, fertiliser and planting date change the outcome |
+| API end-to-end test | (same command) | Register → wrong code rejected → verify (no token for already-verified accounts) → trainer invite code → create scenario → partial update keeps other settings → publish → farm, field and 16-week sensor feed → quick experiment with baseline → weekly attempts → reflection → signed microcredential to a fake AgriLearn → share link (first name only, can be switched off) → stats → trainer scores → password reset revokes old token → delete (field removed). Runs on in-memory Postgres (PGlite) |
 | Type checks | `npm run typecheck` in `/server` and `/mobile` | Strict TypeScript |
 | Bundle check | `npx expo export --platform android` | The app bundles cleanly with Metro |
 
@@ -342,4 +424,6 @@ Before delivery, the full flow (learner sign-up → simulation → result → co
 - Render's free plan sleeps after inactivity, so the first request can be slow. The app's error message mentions this.
 - Engine copies must be kept in sync by hand (`npm run sync-engine`). An npm workspace or shared package would make this automatic.
 - Weather is generated, not real historical data. A future version could load real rainfall for a chosen town.
+- AgriLearn integration is built as a signed webhook with an outbox, because AgriLearn's API wasn't available. Confirm the endpoint, payload and identity matching (currently by verified email) with the AgriLearn team. The app has its own login, not AgriLearn single sign-on.
+- Offline: saved data can be viewed and experiments previewed offline, but scores are not queued; saving a run needs a connection.
 - Possible next features: classes with join codes, CSV export of scores, push notifications (Expo Notifications is free), offline queue for attempts, more crops and languages (isiZulu, Afrikaans, Sesotho), dark mode, admin role.

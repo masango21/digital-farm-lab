@@ -1,6 +1,6 @@
 # Digital Farm Lab — Project Tracker
 
-**Last updated:** 8 November 2026 · **Status:** 🟢 MVP code complete, ready to deploy
+**Last updated:** 9 November 2026 · **Status:** 🟢 A14 spec covered (AgriLearn endpoint pending), ready to deploy
 
 Legend: ✅ Done · 🟡 In progress · ⬜ To do · 🔵 Backlog (later)
 
@@ -83,13 +83,32 @@ Legend: ✅ Done · 🟡 In progress · ⬜ To do · 🔵 Backlog (later)
 | R-05 | Learner scores: ranking by learner + every attempt | ✅ |
 | R-06 | Open any learner's full result | ✅ |
 
+### A14 spec coverage (WIL Projects Pack)
+| ID | Spec item | Status | Where |
+|---|---|---|---|
+| P-01 | Purpose: run scenarios like "reduce irrigation by 20%" and see the effect | ✅ | Quick experiment (−20% irrigation pre-selected) |
+| P-02 | Virtual farm with fields, soil moisture, weather, crop model driven by synthetic sensor data | ✅ | Farm tab, `farms` / `fields` / `sensor_readings` |
+| P-03 | Scenario runner with parameters: irrigation, fertiliser, planting date | ✅ | Quick experiment + `ExperimentParams` |
+| P-04 | Results: yield, water use, cost compared with a baseline | ✅ | Baseline comparison on every result |
+| P-05 | Scored exercises and reflection prompts | ✅ | Score + 3 reflection prompts per run |
+| P-06 | Trainer view of cohort results | ✅ | Learner scores (+ mode, reflection, credentials) |
+| P-07 | Installable PWA with a simplified scenario flow | ✅ | `public/manifest.json`, `sw.js`; quick experiment |
+| P-08 | Cached scenarios; results shareable | ✅ | Saved on device (offline); public share links |
+| P-09 | Provides: microcredential events to the AgriLearn Passport | 🟡 | Signed webhook + outbox built; needs AgriLearn's real endpoint |
+| P-10 | Consumes: AgriLearn modules; identity | 🟡 | Module code on scenarios; identity matched by verified email (no AgriLearn sign-on) |
+| P-11 | Data entities: farms, fields, sensor_readings, scenarios, runs, scores | ✅ | Tables + `runs` / `scores` views |
+| P-12 | Golden journey: choose scenario → change one parameter → run → compare with baseline → score | ✅ | Tested end to end (API test + browser) |
+| P-13 | Stretch: time-lapse chart of a season | ✅ | Season time-lapse on the results screen |
+| P-14 | Cautions: document simplifications; state it is not agronomic advice | ✅ | In-app notice + System docs §6 |
+| P-15 | Ask AgriLearn for their API details (endpoint, payload, identity) | ⬜ | You |
+
 ### Documentation & QA
 | ID | Task | Status |
 |---|---|---|
 | D-01 | API documentation | ✅ |
 | D-02 | System documentation (architecture, data model, simulation, security, deployment) | ✅ |
 | D-03 | Project tracker | ✅ |
-| Q-01 | Server typecheck + 9 automated tests passing | ✅ |
+| Q-01 | Server typecheck + 18 automated tests passing | ✅ |
 | Q-02 | Mobile typecheck + Android bundle builds | ✅ |
 | Q-03 | Click-through test of learner & trainer flows (browser, phone size) | ✅ |
 | Q-04 | Test on a real Android phone with Expo Go | ⬜ |

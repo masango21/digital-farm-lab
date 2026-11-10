@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
 import { errorMessage, fieldErrors, API_URL } from '@/api/client';
-import { Badge, Banner, Button, Card, H2, Muted, Screen, TextField } from '@/components/ui';
+import { Badge, Banner, Button, Card, H2, Muted, PageHeader, Screen, TextField } from '@/components/ui';
 import { capitalize, formatDate } from '@/utils/format';
 import { colors, spacing } from '@/theme';
+import { MyCredentials } from '@/components/Credentials';
 
 export default function ProfileScreen() {
   const { user, updateName, changePassword, signOut } = useAuth();
@@ -59,7 +60,8 @@ export default function ProfileScreen() {
   }
 
   return (
-    <Screen>
+    <Screen edges={['top']}>
+      <PageHeader title="Profile" />
       <Card>
         <View style={{ alignItems: 'center' }}>
           <View style={s.avatar}>
@@ -74,6 +76,8 @@ export default function ProfileScreen() {
           <Text style={s.since}>Member since {formatDate(user.createdAt)}</Text>
         </View>
       </Card>
+
+      {user.role === 'learner' && <MyCredentials />}
 
       {msg && <Banner tone={msg.tone} text={msg.text} />}
 

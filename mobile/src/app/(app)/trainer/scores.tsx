@@ -66,6 +66,10 @@ export default function TrainerScoresScreen() {
                 <Text style={s.meta}>
                   {formatDateTime(r.createdAt)} · 💧 {r.waterUsedMm} mm · irrigation {Math.round(r.irrigationScore)}
                 </Text>
+                <Text style={s.meta}>
+                  {r.mode === 'experiment' ? '🧪 Experiment' : '📅 Week by week'}
+                  {r.reflectedAt ? ' · 📝 Reflected' : ''}
+                </Text>
               </View>
               <Text style={[s.score, { color: scoreColor(r.totalScore) }]}>{Math.round(r.totalScore)}</Text>
             </View>

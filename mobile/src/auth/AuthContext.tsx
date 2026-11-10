@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api, setAuthToken, setUnauthorizedHandler } from '@/api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ApiError, api, setAuthToken, setUnauthorizedHandler } from '@/api/client';
+import { clearCache } from '@/api/queryClient';
 import type { AuthResponse, Role, User } from '@/api/types';
 import { tokenStorage } from './storage';
 
@@ -27,24 +28,26 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const USER_KEY = 'dfl_user';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const queryClient = useQueryClient();
 
   const applySession = useCallback(async (res: AuthResponse) => {
     setAuthToken(res.token);
     await tokenStorage.set(res.token);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(res.user));
     setUser(res.user);
   }, []);
 
   const signOut = useCallback(async () => {
     setAuthToken(null);
     await tokenStorage.clear();
+    await AsyncStorage.removeItem(USER_KEY);
     setUser(null);
-    queryClient.clear();
-  }, [queryClient]);
+    await clearCache(); // also removes saved offline data from this device
+  }, []);
 
   // Restore saved session on app start.
   useEffect(() => {
@@ -54,11 +57,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = await tokenStorage.get();
         if (token) {
           setAuthToken(token);
-          const res = await api<{ user: User }>('/api/auth/me');
-          setUser(res.user);
+          try {
+            const res = await api<{ user: User }>('/api/auth/me');
+            setUser(res.user);
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(res.user));
+          } catch (e) {
+            // No connection: open the app offline as the last signed-in user (saved data only).
+            const saved = e instanceof ApiError && e.status === 0 ? await AsyncStorage.getItem(USER_KEY) : null;
+            if (saved) setUser(JSON.parse(saved) as User);
+          }
         }
       } catch {
-        // Offline or expired token. 401 is handled by signOut.
+        // 401 is handled by signOut.
       } finally {
         setIsLoading(false);
       }

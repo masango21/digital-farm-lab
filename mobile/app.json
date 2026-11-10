@@ -25,7 +25,12 @@
     },
     "web": {
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Digital Farm Lab",
+      "shortName": "Farm Lab",
+      "themeColor": "#2F6B2F",
+      "backgroundColor": "#F4F7F2",
+      "description": "Run a virtual farm and see the effect of your decisions."
     },
     "plugins": [
       "expo-router",

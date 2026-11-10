@@ -21,7 +21,7 @@ export default function Login() {
       await signIn(email.trim(), password);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'EMAIL_NOT_VERIFIED') {
-        router.push({ pathname: '/verify-email', params: { email: email.trim().toLowerCase() } });
+        router.push({ pathname: '/verify-email', params: { email: email.trim().toLowerCase(), from: 'login' } });
         return;
       }
       setError(errorMessage(e));
@@ -47,7 +47,16 @@ export default function Login() {
         textContentType="emailAddress"
         error={fields.email}
       />
-      <TextField label="Password" value={password} onChangeText={setPassword} secure autoComplete="password" error={fields.password} />
+      <TextField
+        label="Password"
+        value={password}
+        onChangeText={setPassword}
+        secure
+        autoComplete="password"
+        error={fields.password}
+        returnKeyType="go"
+        onSubmitEditing={() => email && password && !loading && onSubmit()}
+      />
       <Button title="Sign in" onPress={onSubmit} loading={loading} disabled={!email || !password} />
       <Button title="Forgot password?" variant="ghost" onPress={() => router.push({ pathname: '/forgot-password', params: { email } })} />
       <Button title="New here? Create an account" variant="ghost" onPress={() => router.replace('/register')} />

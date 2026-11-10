@@ -1,13 +1,16 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { Card, H2, Muted, Screen } from '@/components/ui';
+import { Card, H2, Muted, PageHeader, Screen } from '@/components/ui';
 import { CROP_LIST, SOILS, WILTING_POINT_PCT, WATERLOGGING_PCT } from '@/simulation/crops';
 import { SCORE_WEIGHTS } from '@/simulation/engine';
 import { colors, spacing } from '@/theme';
 import { formatRand } from '@/utils/format';
+import { ModelNotice } from '@/components/ModelNotice';
 
 export default function LearnScreen() {
   return (
-    <Screen>
+    <Screen edges={['top']}>
+      <PageHeader title="Crop guide" subtitle="How the farm model works, how you're scored, and the crops and soils you'll meet." />
+      <ModelNotice />
       <Card style={{ backgroundColor: colors.primaryLight, borderColor: colors.primaryLight }}>
         <H2>How you are scored</H2>
         {(

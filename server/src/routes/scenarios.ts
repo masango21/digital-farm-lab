@@ -2,14 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { and, avg, count, desc, eq, max, or, type SQL } from 'drizzle-orm';
 import { db } from '../db/client';
-import { attempts, scenarios, users, type Scenario } from '../db/schema';
+import { attempts, farms, fields, scenarios, users, type Scenario } from '../db/schema';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { parseBody, parseQuery } from '../middleware/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { deleteImage, isOwnCloudinaryAsset } from '../lib/cloudinary';
 import { toSimScenario } from '../lib/scenario';
+import { createFieldFor, removeFieldIfUnused, syncFieldSoil, writeSensorReadings } from '../lib/farm';
 import { CROPS, type CropId } from '../simulation/crops';
-import { generateWeather, runSimulation } from '../simulation/engine';
+import { generateWeather, runBaseline, runExperiment, runSimulation, summarize } from '../simulation/engine';
 
 export const scenariosRouter = Router();
 scenariosRouter.use(requireAuth);
@@ -34,6 +35,15 @@ const scenarioInput = z.object({
   rainfallMm: weeklyArray.optional(),
   imageUrl: z.string().url().nullable().optional(),
   imagePublicId: z.string().nullable().optional(),
+  /** Optional AgriLearn module code, e.g. "AGR-IRR-101". */
+  agrilearnModuleCode: z
+    .string()
+    .trim()
+    .max(40)
+    .regex(/^[A-Za-z0-9._-]*$/, 'Use letters, numbers, dots, dashes or underscores')
+    .transform((v) => v || null)
+    .nullable()
+    .optional(),
   isPublished: z.boolean().default(false),
 });
 
@@ -102,13 +112,15 @@ scenariosRouter.get('/:id', async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id);
   if (!id.success) throw notFound('Scenario not found');
   const [row] = await db
-    .select({ scenario: scenarios, trainerName: users.name })
+    .select({ scenario: scenarios, trainerName: users.name, fieldName: fields.name, farmName: farms.name })
     .from(scenarios)
     .innerJoin(users, eq(users.id, scenarios.trainerId))
+    .leftJoin(fields, eq(fields.id, scenarios.fieldId))
+    .leftJoin(farms, eq(farms.id, fields.farmId))
     .where(eq(scenarios.id, id.data))
     .limit(1);
   if (!row || (!row.scenario.isPublished && row.scenario.trainerId !== req.user!.id)) throw notFound('Scenario not found');
-  res.json({ scenario: serialize(row.scenario, row.trainerName) });
+  res.json({ scenario: { ...serialize(row.scenario, row.trainerName), fieldName: row.fieldName, farmName: row.farmName } });
 });
 
 // GET /api/scenarios/:id/stats – used by learners to compare their score with others
@@ -136,10 +148,12 @@ scenariosRouter.post('/', requireRole('trainer'), async (req, res) => {
   const weeks = body.weeks ?? CROPS[body.crop as CropId].seasonWeeks;
   validateExtras(body, weeks, req.user!.id);
   const weather = buildWeather({ ...body, weeks });
+  const field = await createFieldFor(body, req.user!.id, req.user!.name);
   const [created] = await db
     .insert(scenarios)
     .values({
       trainerId: req.user!.id,
+      fieldId: field.id,
       title: body.title,
       description: body.description,
       learningGoals: body.learningGoals,
@@ -157,16 +171,22 @@ scenariosRouter.post('/', requireRole('trainer'), async (req, res) => {
       pestWeeks: [...new Set(body.pestWeeks)].sort((a, b) => a - b),
       imageUrl: body.imageUrl ?? null,
       imagePublicId: body.imagePublicId ?? null,
+      agrilearnModuleCode: body.agrilearnModuleCode ?? null,
       isPublished: body.isPublished,
     })
     .returning();
+  await writeSensorReadings(created);
   res.status(201).json({ scenario: serialize(created, req.user!.name) });
 });
 
 // PATCH /api/scenarios/:id  (owner trainer)
 scenariosRouter.patch('/:id', requireRole('trainer'), async (req, res) => {
   const existing = await loadOwned(String(req.params.id), req.user!.id);
-  const body = parseBody(scenarioInput.partial(), req);
+  const parsed = parseBody(scenarioInput.partial(), req);
+  // Zod fills in defaults for missing fields; keep only what was actually sent so a
+  // partial update (e.g. just { isPublished }) doesn't reset other settings.
+  const sent = new Set(Object.keys(req.body ?? {}));
+  const body = Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<typeof parsed>;
   const merged = {
     crop: body.crop ?? existing.crop,
     climate: body.climate ?? existing.climate,
@@ -195,13 +215,26 @@ scenariosRouter.patch('/:id', requireRole('trainer'), async (req, res) => {
     })
     .where(eq(scenarios.id, existing.id))
     .returning();
-  res.json({ scenario: serialize(updated, req.user!.name) });
+
+  // Keep the field and its synthetic sensor feed in step with the scenario.
+  let final = updated;
+  if (!updated.fieldId) {
+    const field = await createFieldFor(updated, req.user!.id, req.user!.name);
+    [final] = await db.update(scenarios).set({ fieldId: field.id }).where(eq(scenarios.id, updated.id)).returning();
+  }
+  const simKeys = ['crop', 'soil', 'climate', 'weeks', 'avgTemperatureC', 'startMoisturePct', 'waterAllowanceMm', 'pestWeeks', 'rainfallMm'];
+  if (!updated.fieldId || simKeys.some((k) => k in body)) {
+    await syncFieldSoil(final);
+    await writeSensorReadings(final);
+  }
+  res.json({ scenario: serialize(final, req.user!.name) });
 });
 
 // DELETE /api/scenarios/:id  (owner trainer)
 scenariosRouter.delete('/:id', requireRole('trainer'), async (req, res) => {
   const existing = await loadOwned(String(req.params.id), req.user!.id);
   await db.delete(scenarios).where(eq(scenarios.id, existing.id));
+  await removeFieldIfUnused(existing.fieldId, existing.id);
   await deleteImage(existing.imagePublicId);
   res.status(204).end();
 });
@@ -213,29 +246,49 @@ scenariosRouter.post('/:id/attempts', requireRole('learner'), async (req, res) =
   const [scenario] = await db.select().from(scenarios).where(and(eq(scenarios.id, id.data), eq(scenarios.isPublished, true))).limit(1);
   if (!scenario) throw notFound('Scenario not found');
 
+  // Older app versions send only { decisions } – treat that as a weekly run.
+  if (req.body && typeof req.body === 'object' && !('mode' in req.body)) req.body = { mode: 'weekly', ...req.body };
   const body = parseBody(
-    z.object({
-      decisions: z
-        .array(
-          z.object({
-            irrigationMm: z.number().min(0).max(60),
-            fertilizer: z.enum(['none', 'low', 'high']),
-            pestControl: z.boolean(),
-          }),
-        )
-        .length(scenario.weeks, `Submit exactly ${scenario.weeks} weekly decisions`),
-    }),
+    z.discriminatedUnion('mode', [
+      z.object({
+        mode: z.literal('weekly'),
+        decisions: z
+          .array(
+            z.object({
+              irrigationMm: z.number().min(0).max(60),
+              fertilizer: z.enum(['none', 'low', 'high']),
+              pestControl: z.boolean(),
+            }),
+          )
+          .length(scenario.weeks, `Submit exactly ${scenario.weeks} weekly decisions`),
+      }),
+      z.object({
+        mode: z.literal('experiment'),
+        params: z.object({
+          irrigationChangePct: z.number().int().min(-100).max(100),
+          fertilizerPlan: z.enum(['none', 'half', 'recommended', 'double']),
+          plantingShiftWeeks: z.number().int().min(-8).max(8),
+        }),
+      }),
+    ]),
     req,
   );
 
   // Server re-runs the engine – the client's own score is never trusted.
-  const result = runSimulation(toSimScenario(scenario), body.decisions);
+  const sim = toSimScenario(scenario);
+  const run = body.mode === 'experiment' ? runExperiment(sim, body.params) : null;
+  const decisions = run ? run.decisions : body.mode === 'weekly' ? body.decisions : [];
+  const result = run ? run.result : runSimulation(sim, decisions);
+  const baseline = summarize(runBaseline(sim));
   const [attempt] = await db
     .insert(attempts)
     .values({
       scenarioId: scenario.id,
       learnerId: req.user!.id,
-      decisions: body.decisions,
+      mode: body.mode,
+      params: run ? run.params : null,
+      decisions,
+      baseline,
       result,
       totalScore: result.totalScore,
       irrigationScore: result.breakdown.irrigation,

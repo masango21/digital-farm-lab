@@ -7,9 +7,10 @@ import { useAuth } from '@/auth/AuthContext';
 import { useScenarios } from '@/api/hooks';
 import type { Scenario } from '@/api/types';
 import { errorMessage } from '@/api/client';
-import { Badge, Button, Card, Chip, EmptyState, ErrorView, Loading, Muted, Screen } from '@/components/ui';
+import { Badge, Button, Card, Chip, EmptyState, ErrorView, Loading, Muted, PageHeader, Screen } from '@/components/ui';
 import { CROP_LIST, SOILS, type CropId } from '@/simulation/crops';
 import { capitalize } from '@/utils/format';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { colors, spacing } from '@/theme';
 
 export default function ScenariosScreen() {
@@ -21,9 +22,11 @@ export default function ScenariosScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Screen refreshing={query.isRefetching} onRefresh={query.refetch}>
-        <Text style={s.hello}>Hi {user?.name.split(' ')[0]} 👋</Text>
-        <Muted>{isTrainer ? 'Create and manage farming scenarios for your learners.' : 'Pick a scenario and run your farm for a season.'}</Muted>
+      <Screen refreshing={query.isRefetching} onRefresh={query.refetch} edges={['top']}>
+        <PageHeader
+          title={`Hi ${user?.name.split(' ')[0] ?? ''} 👋`}
+          subtitle={isTrainer ? 'Create and manage farming scenarios for your learners.' : 'Pick a scenario and run your farm for a season.'}
+        />
 
         {isTrainer && (
           <View style={[s.filters, { marginTop: spacing.md }]}>
@@ -39,9 +42,10 @@ export default function ScenariosScreen() {
           ))}
         </ScrollView>
 
+        <OfflineBanner error={query.error} hasData={!!query.data} />
         {query.isLoading ? (
           <Loading />
-        ) : query.error ? (
+        ) : query.error && !query.data ? (
           <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />
         ) : query.data?.length === 0 ? (
           <EmptyState
@@ -101,7 +105,7 @@ function ScenarioCard({ scenario, showStatus }: { scenario: Scenario; showStatus
 const s = StyleSheet.create({
   hello: { fontSize: 24, fontWeight: '800', color: colors.text },
   filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  image: { width: '100%', height: 130 },
+  image: { width: '100%', height: 112 },
   placeholder: { backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 4 },
   meta: { fontSize: 12, color: colors.textMuted, marginTop: spacing.sm },

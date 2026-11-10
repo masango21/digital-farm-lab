@@ -5,9 +5,14 @@ import { useAuth } from '@/auth/AuthContext';
 import { useAttempt, useScenarioStats } from '@/api/hooks';
 import { errorMessage } from '@/api/client';
 import { Button, Card, ErrorView, H2, Loading, Muted, Screen, ScoreBar, Stat } from '@/components/ui';
-import { MoistureChart } from '@/components/MoistureChart';
+import { SeasonTimelapse } from '@/components/SeasonTimelapse';
 import { CROPS } from '@/simulation/crops';
-import { SCORE_WEIGHTS } from '@/simulation/engine';
+import { SCORE_WEIGHTS, summarize } from '@/simulation/engine';
+import { BaselineComparison, headline } from '@/components/BaselineComparison';
+import { describeParams } from '@/utils/experiment';
+import { ReflectionCard } from '@/components/Reflection';
+import { ModelNotice } from '@/components/ModelNotice';
+import { ShareResult } from '@/components/ShareResult';
 import { capitalize, formatDateTime, formatRand } from '@/utils/format';
 import { colors, gradeColor, spacing } from '@/theme';
 
@@ -19,7 +24,7 @@ export default function AttemptResult() {
   const [showWeeks, setShowWeeks] = useState(false);
 
   if (query.isLoading) return <Loading />;
-  if (query.error || !query.data) return <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />;
+  if (!query.data) return <ErrorView message={errorMessage(query.error)} onRetry={query.refetch} />;
 
   const a = query.data;
   const r = a.result;
@@ -43,6 +48,15 @@ export default function AttemptResult() {
         )}
       </Card>
 
+      {a.baseline && (
+        <Card>
+          <H2>Compared with the baseline</H2>
+          <Text style={s.changed}>{describeParams(a.mode === 'experiment' ? a.params : null)}</Text>
+          <Text style={s.headline}>{headline(a.baseline, summarize(r))}</Text>
+          <BaselineComparison baseline={a.baseline} run={summarize(r)} runLabel={isMine ? 'Your run' : 'This run'} />
+        </Card>
+      )}
+
       <Card>
         <H2>Score breakdown</H2>
         <ScoreBar label="🌾 Yield" value={r.breakdown.yield} weight={SCORE_WEIGHTS.yield} />
@@ -65,6 +79,8 @@ export default function AttemptResult() {
         </View>
       </Card>
 
+      <ReflectionCard attempt={a} canEdit={isMine} />
+
       <Card>
         <H2>What to improve</H2>
         {r.feedback.map((f, i) => (
@@ -76,8 +92,8 @@ export default function AttemptResult() {
 
       {crop && (
         <Card>
-          <H2>Soil moisture over the season</H2>
-          <MoistureChart logs={r.logs} optimal={crop.optimalMoisture} totalWeeks={r.logs.length} />
+          <H2>Season time-lapse</H2>
+          <SeasonTimelapse logs={r.logs} crop={crop} />
         </Card>
       )}
 
@@ -104,15 +120,19 @@ export default function AttemptResult() {
         </Card>
       )}
 
+      <ModelNotice compact />
+
       {isMine && (
         <>
-          <Button title="Try this scenario again" icon="refresh" onPress={() => router.replace(`/simulate/${a.scenarioId}`)} />
+          <Button title="Try another experiment" icon="flask-outline" onPress={() => router.replace(`/experiment/${a.scenarioId}`)} />
+          <Button title="Play week by week" icon="calendar-outline" variant="secondary" onPress={() => router.replace(`/simulate/${a.scenarioId}`)} />
           <Button
             title="Compare with another attempt"
             variant="secondary"
             icon="git-compare-outline"
             onPress={() => router.push({ pathname: '/compare', params: { a: a.id } })}
           />
+          <ShareResult attempt={a} />
         </>
       )}
     </Screen>
@@ -124,6 +144,8 @@ const s = StyleSheet.create({
   grade: { fontSize: 72, fontWeight: '900', marginTop: spacing.sm },
   total: { fontSize: 22, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
   stats: { flexDirection: 'row', marginBottom: spacing.sm },
+  changed: { fontSize: 13, fontWeight: '700', color: colors.primary, marginBottom: 4 },
+  headline: { fontSize: 14, color: colors.text, lineHeight: 20, marginBottom: spacing.sm },
   feedback: { fontSize: 14, color: colors.text, marginBottom: 6, lineHeight: 20 },
   tr: { flexDirection: 'row', paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   th: { borderBottomWidth: 1 },

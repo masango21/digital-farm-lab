@@ -88,10 +88,9 @@ authRouter.post('/verify-email', async (req, res) => {
   const body = parseBody(z.object({ email, code }), req);
   const user = await findByEmail(body.email);
   if (!user) throw badRequest('That code is not correct', 'CODE_INVALID');
-  if (user.emailVerified) {
-    res.json({ token: signToken(user), user: publicUser(user) });
-    return;
-  }
+  // Never hand out a token here for an already-verified account: that would let
+  // anyone who knows the email sign in without a password.
+  if (user.emailVerified) throw conflict('This email is already verified. Please sign in.', 'ALREADY_VERIFIED');
   const result = await consumeCode(user.id, 'verify_email', body.code);
   if (result !== 'ok') throw codeError(result);
   const [updated] = await db
@@ -120,10 +119,9 @@ authRouter.post('/login', async (req, res) => {
   const user = await findByEmail(body.email);
   const ok = user ? await bcrypt.compare(body.password, user.passwordHash) : false;
   if (!user || !ok) throw unauthorized('Email or password is incorrect', 'INVALID_CREDENTIALS');
+  // Codes are only emailed at sign-up (or when the user taps "Send a new code").
   if (!user.emailVerified) {
-    const otp = await createCode(user.id, 'verify_email');
-    await sendEmail({ to: { email: user.email, name: user.name }, ...verificationEmail(user.name, otp, CODE_TTL) });
-    throw forbidden('Please verify your email. We sent you a new code.', 'EMAIL_NOT_VERIFIED');
+    throw forbidden('Please verify your email using the code we sent when you signed up.', 'EMAIL_NOT_VERIFIED');
   }
   res.json({ token: signToken(user), user: publicUser(user) });
 });

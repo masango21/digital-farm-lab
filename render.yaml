@@ -40,3 +40,13 @@ services:
         sync: false
       - key: CLOUDINARY_FOLDER
         value: digital-farm-lab
+      # AgriLearn Passport: leave the URL empty until AgriLearn gives you one; events queue meanwhile.
+      - key: AGRILEARN_WEBHOOK_URL
+        sync: false
+      - key: AGRILEARN_WEBHOOK_SECRET
+        generateValue: true
+      - key: CREDENTIAL_MIN_SCORE
+        value: "70"
+      # Public URL of this API, used in shareable result links (e.g. https://digital-farm-lab-api.onrender.com)
+      - key: PUBLIC_BASE_URL
+        sync: false

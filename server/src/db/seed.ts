@@ -5,9 +5,10 @@
  */
 import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db as defaultDb } from './client';
-import { scenarios, users } from './schema';
+import { farms, scenarios, users } from './schema';
+import { createFieldFor, writeSensorReadings } from '../lib/farm';
 import { CROPS, type CropId, type SoilType, type Climate } from '../simulation/crops';
 import { generateWeather } from '../simulation/engine';
 
@@ -107,6 +108,23 @@ export async function seedDatabase(db: Db = defaultDb) {
       isPublished: true,
     });
     console.log(`✓ created: ${s.title}`);
+  }
+
+  // The demo farm for the starter scenarios (ensureFarm reuses it afterwards).
+  const [demoFarm] = await db.select().from(farms).where(eq(farms.ownerId, trainer.id)).limit(1);
+  if (!demoFarm) await db.insert(farms).values({ ownerId: trainer.id, name: 'Digital Farm Lab Demo Farm', region: 'Gauteng, South Africa' });
+
+  // Give every scenario without a field (starters and older scenarios) a field + sensor feed.
+  const orphans = await db
+    .select({ scenario: scenarios, ownerName: users.name })
+    .from(scenarios)
+    .innerJoin(users, eq(users.id, scenarios.trainerId))
+    .where(isNull(scenarios.fieldId));
+  for (const { scenario, ownerName } of orphans) {
+    const field = await createFieldFor(scenario, scenario.trainerId, ownerName, db);
+    const [withField] = await db.update(scenarios).set({ fieldId: field.id }).where(eq(scenarios.id, scenario.id)).returning();
+    await writeSensorReadings(withField, db);
+    console.log(`✓ field + sensor feed: ${scenario.title}`);
   }
   console.log('Seeding complete');
 }

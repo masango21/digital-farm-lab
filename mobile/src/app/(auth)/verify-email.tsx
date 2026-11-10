@@ -6,7 +6,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { errorMessage } from '@/api/client';
 
 export default function VerifyEmail() {
-  const params = useLocalSearchParams<{ email?: string }>();
+  const params = useLocalSearchParams<{ email?: string; from?: string }>();
+  const fromLogin = params.from === 'login';
   const { verifyEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState(params.email ?? '');
   const [code, setCode] = useState('');
@@ -44,7 +45,11 @@ export default function VerifyEmail() {
   return (
     <Screen>
       <H1>Check your email 📬</H1>
-      <Muted>We sent a 6-digit code to {email || 'your email'}. It expires in 15 minutes.</Muted>
+      <Muted>
+        {fromLogin
+          ? `Your email isn't verified yet. Enter the 6-digit code we sent to ${email || 'your email'} when you signed up, or tap "Send a new code" if it has expired.`
+          : `We sent a 6-digit code to ${email || 'your email'}. It expires in 15 minutes.`}
+      </Muted>
       <View style={{ height: 20 }} />
       {error && <Banner tone="error" text={error} />}
       {info && <Banner tone="success" text={info} />}
